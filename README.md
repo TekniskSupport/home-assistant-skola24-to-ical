@@ -1,0 +1,1 @@
+# home-assistant-skola24-to-ical
