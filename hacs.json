@@ -1,0 +1,6 @@
+{
+  "name": "skola24",
+  "country": "SE",
+  "domains": ["sensor"],
+  "homeassistant": "2021.12.10"
+}
