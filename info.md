@@ -6,7 +6,7 @@ To be used with ical sensor integration fork:
 [https://github.com/TekniskSupport/ical-sensor-homeassistant](https://github.com/TekniskSupport/ical-sensor-homeassistant)
 
 with the config: 
-file:///configuration/schedule.ics
+file:///config/schedule.ics
 
 Configuration example:
 ```yaml
