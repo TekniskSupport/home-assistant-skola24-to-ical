@@ -13,22 +13,26 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_component import EntityComponent
 from homeassistant.components.sensor import PLATFORM_SCHEMA
-#from homeassistant.components.rest import RestData
+from homeassistant.components.rest import RestData
 from homeassistant.const import (CONF_NAME)
 
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_NAME            = 'Skola24'
-DEFAULT_INTERVAL        = 86000
+DEFAULT_INTERVAL        = 86400 # once a day
 HEADERS                 = {"X-Scope": "8a22163c-8662-4535-9050-bc5e1923df48", "Content-Type":"application/json"}
 CONF_URL                = 'url'
 CONF_SCHOOL             = 'school'
 CONF_CLASSNAME          = 'class'
+CONF_LOCALPATH          = 'path'
+CONF_SENSORNAME         = 'name'
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_SCHOOL, default=0): cv.string,
     vol.Required(CONF_CLASSNAME, default=0): cv.string,
     vol.Required(CONF_URL, default=0): cv.string,
+    vol.Required(CONF_LOCALPATH, default=0): cv.string,
+    vol.Required(CONF_SENSORNAME, default=0): cv.string,
 })
 SCAN_INTERVAL = timedelta(minutes=DEFAULT_INTERVAL)
 
@@ -36,14 +40,18 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
     school    = config.get(CONF_SCHOOL)
     className = config.get(CONF_CLASSNAME)
     apiHost   = config.get(CONF_URL)
+    localPath = config.get(CONF_LOCALPATH)
+    name      = config.get(CONF_SENSORNAME)
 
     await add_sensors(
         hass,
         config,
         async_add_devices,
+        name,
         school,
         className,
         apiHost,
+        localPath,
         discovery_info
     )
 
@@ -51,18 +59,20 @@ async def add_sensors(
         hass,
         config,
         async_add_devices,
+        name,
         school,
         className,
         apiHost,
+        localPath,
         discovery_info=None
     ):
     sensors = []
-    sensors.append(entityRepresentation(hass, school, className, apiHost))
+    sensors.append(entityRepresentation(hass, name, school, className, apiHost, localPath))
     async_add_devices(sensors, True)
 
 class entityRepresentation(Entity):
-    def __init__(self, hass, school, className, apiHost):
-        self._name        = "skola24_to_icalendar"
+    def __init__(self, hass, name, school, className, apiHost, localPath):
+        self._name        = "skola24_"+ name
         self._unit        = "time"
         self._state       = "Unavailable"
         self._attributes  = {}
@@ -71,6 +81,7 @@ class entityRepresentation(Entity):
         self._school      = school
         self._className   = className
         self._apiHost     = apiHost
+        self._localPath   = localPath
 
         weekNow   = datetime.today().isocalendar()[1]
         self.week = range(weekNow-2, weekNow+4)
@@ -102,19 +113,18 @@ class entityRepresentation(Entity):
 
     def errorCheck(self, r):
         if(r.status_code != requests.codes.ok):
-            exit("[ERROR]\tGot response "+str(r.status_code)+" from "+r.url)
+            _LOGGER.error("[ERROR]\tGot response "+str(r.status_code)+" from "+r.url)
         if (r.json()["error"] != None):
-            exit("[ERROR]\tGot the following error from "+r.url+" : "+ json.dumps(r.json()["error"]))
+            _LOGGER.error("[ERROR]\tGot the following error from "+r.url+" : "+ json.dumps(r.json()["error"]))
         if(r.json()["validation"]):
-            exit("[ERROR]\tGot error from "+r.url+", error: "+json.dumps(r.json()["validation"]))
+            _LOGGER.error("[ERROR]\tGot error from "+r.url+", error: "+json.dumps(r.json()["validation"]))
         if(r.json()["exception"] != None):
-            exit("[ERROR]\tGot exception from "+r.url+", error: "+json.dumps(r.json()["exception"]))
+            _LOGGER.error("[ERROR]\tGot exception from "+r.url+", error: "+json.dumps(r.json()["exception"]))
 
     def makeRequest(self, url, data=None):
         if data is None:
-            return requests.post(url, json="null", headers=HEADERS)
-        else:
-            return requests.post(url, json=data, headers=HEADERS)
+            data="null"
+        return requests.post(url, json=data, headers=HEADERS)
 
     async def getSchool(self, hass):
         match = None
@@ -138,9 +148,9 @@ class entityRepresentation(Entity):
             return match;
         else:
             if len(listOfSchools) > 0:
-                print('Please provide one if following')
+                _LOGGER.error('Please provide one if following')
                 for s in listOfSchools:
-                    print(s)
+                    _LOGGER.error(s)
             exit("ERROR: could not match school")
 
     async def getClass(self, hass, guid):
@@ -167,9 +177,9 @@ class entityRepresentation(Entity):
             return match;
         else:
             if len(listOfClasses) > 0:
-                print('Please provide one of the following:')
+                _LOGGER.error('Please provide one of the following:')
                 for c in listOfClasses:
-                    print(c)
+                    _LOGGER.error(c)
             exit("ERROR: could not match class")
 
     async def getRenderKey(self, hass):
@@ -211,19 +221,21 @@ class entityRepresentation(Entity):
             if responseJson is not None:
                 for lesson in responseJson:
                     lesson["weekOfYear"] = w
-                    print(lesson)
                     lessons.append(lesson)
         return lessons
 
     def icsLetter(self, data):
-        f = open("schedule.ics", "w")
+        numberOfEvents = 0
+        f = open(self._localPath, "w")
         f.write('BEGIN:VCALENDAR'+"\n")
         f.write('VERSION:2.0'+"\n")
         f.write('CALSCALE:GREGORIAN'+"\n")
         for lesson in data:
+          numberOfEvents = numberOfEvents+1
           self.icsEvent(lesson, f)
         f.write('END:VCALENDAR')
         f.close()
+        return numberOfEvents
 
     def icsEvent(self, lesson, f):
         if lesson['timeStart'] is not None:
@@ -254,7 +266,7 @@ class entityRepresentation(Entity):
         selection = await self.getClass(hass, guid)
         renderKey = await self.getRenderKey(hass)
         schedule = await self.getTimeTable(hass, renderKey, selection, guid)
-        self.icsLetter(schedule)
+        numberOfEvents = self.icsLetter(schedule)
 
         self._state = datetime.now()
-        #self._attributes.update({attribute: data[attribute]})
+        self._attributes.update({'numberOfEvents': numberOfEvents})
