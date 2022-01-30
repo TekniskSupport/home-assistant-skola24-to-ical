@@ -14,4 +14,6 @@ Configuration example:
   school: Ankeborgsskolan
   class: 9A
   url: ankeborg.skola24.se
+  name: mysensor
+  path: /config/schedule.ics
 ```
