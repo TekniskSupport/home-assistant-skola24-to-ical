@@ -23,13 +23,15 @@ DEFAULT_INTERVAL        = 86400 # once a day
 HEADERS                 = {"X-Scope": "8a22163c-8662-4535-9050-bc5e1923df48", "Content-Type":"application/json"}
 CONF_URL                = 'url'
 CONF_SCHOOL             = 'school'
+CONF_SSN                = 'pin'
 CONF_CLASSNAME          = 'class'
 CONF_LOCALPATH          = 'path'
 CONF_SENSORNAME         = 'name'
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_SCHOOL, default=0): cv.string,
-    vol.Required(CONF_CLASSNAME, default=0): cv.string,
+    vol.Optional(CONF_CLASSNAME): cv.string,
+    vol.Optional(CONF_SSN): cv.string,
     vol.Required(CONF_URL, default=0): cv.string,
     vol.Required(CONF_LOCALPATH, default=0): cv.string,
     vol.Required(CONF_SENSORNAME, default=0): cv.string,
@@ -37,21 +39,10 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 SCAN_INTERVAL = timedelta(minutes=DEFAULT_INTERVAL)
 
 async def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
-    school    = config.get(CONF_SCHOOL)
-    className = config.get(CONF_CLASSNAME)
-    apiHost   = config.get(CONF_URL)
-    localPath = config.get(CONF_LOCALPATH)
-    name      = config.get(CONF_SENSORNAME)
-
     await add_sensors(
         hass,
         config,
         async_add_devices,
-        name,
-        school,
-        className,
-        apiHost,
-        localPath,
         discovery_info
     )
 
@@ -59,29 +50,24 @@ async def add_sensors(
         hass,
         config,
         async_add_devices,
-        name,
-        school,
-        className,
-        apiHost,
-        localPath,
         discovery_info=None
     ):
     sensors = []
-    sensors.append(entityRepresentation(hass, name, school, className, apiHost, localPath))
+    sensors.append(entityRepresentation(hass, config))
     async_add_devices(sensors, True)
 
 class entityRepresentation(Entity):
-    def __init__(self, hass, name, school, className, apiHost, localPath):
-        self._name        = "skola24_"+ name
-        self._unit        = "time"
-        self._state       = "Unavailable"
-        self._attributes  = {}
-
-        self.hass         = hass
-        self._school      = school
-        self._className   = className
-        self._apiHost     = apiHost
-        self._localPath   = localPath
+    def __init__(self, hass, config):
+        self._name       = "skola24_"+ config.get(CONF_SENSORNAME)
+        self._unit       = "time"
+        self._state      = "Unavailable"
+        self._attributes = {}
+        self.hass        = hass
+        self._school     = config.get(CONF_SCHOOL)
+        self._className  = config.get(CONF_CLASSNAME) if config.get(CONF_CLASSNAME) else None
+        self._SSN        = config.get(CONF_SSN) if config.get(CONF_SSN) else None
+        self._apiHost    = config.get(CONF_URL)
+        self._localPath  = config.get(CONF_LOCALPATH)
 
         weekNow   = datetime.today().isocalendar()[1]
         self.week = range(weekNow-2, weekNow+4)
@@ -182,6 +168,17 @@ class entityRepresentation(Entity):
                     _LOGGER.error(c)
             exit("ERROR: could not match class")
 
+    async def getEncryptedSelection(self, hass, studentId):
+        data = {
+            "signature": studentId
+        }
+        response = await hass.async_add_executor_job(self.makeRequest,
+                "https://web.skola24.se/api/encrypt/signature",
+                data
+        )
+        self.errorCheck(response)
+        return response.json()["data"]["signature"]
+
     async def getRenderKey(self, hass):
         response = await hass.async_add_executor_job(self.makeRequest,
                 "https://web.skola24.se/api/get/timetable/render/key"
@@ -189,7 +186,8 @@ class entityRepresentation(Entity):
         self.errorCheck(response)
         return response.json()["data"]["key"]
 
-    async def getTimeTable(self, hass, renderKey, selection, guid):
+    async def getTimeTable(self, hass, renderKey,
+                           selection, selectionTypeId, guid):
         lessons = []
         for w in self.week:
             data={
@@ -202,7 +200,7 @@ class entityRepresentation(Entity):
                 "blackAndWhite":"false",
                 "width":1223,
                 "height":550,
-                "selectionType":0,
+                "selectionType": selectionTypeId,
                 "selection":selection,
                 "showHeader":"false",
                 "periodText":"",
@@ -263,9 +261,16 @@ class entityRepresentation(Entity):
     async def async_update(self):
         hass = self.hass
         guid = await self.getSchool(hass)
-        selection = await self.getClass(hass, guid)
+        if not self._SSN and not self._className:
+            _LOGGER.error("[ERROR]\tYou must define one of SSN or ClassName")
+        if self._SSN:
+            selection = await self.getEncryptedSelection(hass, self._SSN)
+            selectionTypeId = 4
+        else:
+            selection = await self.getClass(hass, guid)
+            selectionTypeId = 0
         renderKey = await self.getRenderKey(hass)
-        schedule = await self.getTimeTable(hass, renderKey, selection, guid)
+        schedule = await self.getTimeTable(hass, renderKey, selection, selectionTypeId, guid)
         numberOfEvents = self.icsLetter(schedule)
 
         self._state = datetime.now()
