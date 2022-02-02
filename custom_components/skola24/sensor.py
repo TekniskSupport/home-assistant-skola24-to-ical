@@ -243,7 +243,10 @@ class entityRepresentation(Entity):
                 self.getDateTime(lesson['dayOfWeekNumber'], lesson['timeStart'], lesson["weekOfYear"])+"\n")
             f.write('DTEND;TZID=Europe/Berlin:' +
                 self.getDateTime(lesson['dayOfWeekNumber'], lesson['timeEnd'], lesson["weekOfYear"])+"\n")
-            f.write('LOCATION:' + lesson['texts'][2]+"\n")
+            try:
+                f.write('LOCATION:' + lesson['texts'][2] +"\n")
+            except:
+                pass
             f.write('DESCRIPTION:' + lesson['texts'][0]+"\n")
             f.write('STATUS:CONFIRMED'+"\n")
             f.write('SEQUENCE:3'+"\n")
