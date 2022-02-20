@@ -2,8 +2,8 @@
 
 Creates a file: /config/schedule.ics
 
-To be used with ical sensor integration fork:
-[https://github.com/TekniskSupport/ical-sensor-homeassistant](https://github.com/TekniskSupport/ical-sensor-homeassistant)
+To be used with ical sensor integration (can be found in HACS):
+[https://github.com/tybritten/ical-sensor-homeassistant/](https://github.com/tybritten/ical-sensor-homeassistant/)
 
 with the config:
 `file:///config/schedule.ics`
