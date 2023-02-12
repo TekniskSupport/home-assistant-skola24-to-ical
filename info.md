@@ -18,6 +18,9 @@ Configuration example:
   path: /config/schedule.ics
 ```
 
+To get the value for the URL, head over to https://skola24.se and look in the drop-down in order to find the correct server
+
+
 Configuration example using a personal identification number:
 ```yaml
 - platform: skola24
