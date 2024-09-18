@@ -110,7 +110,7 @@ class entityRepresentation(Entity):
     def makeRequest(self, url, data=None):
         if data is None:
             data="null"
-        return requests.post(url, json=data, headers=HEADERS)
+        return requests.post(url, json=data, headers=HEADERS, timeout=5)
 
     async def getSchool(self, hass):
         match = None
